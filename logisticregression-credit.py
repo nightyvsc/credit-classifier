@@ -1,12 +1,12 @@
 """
-bernoullinb-credit.py
+logisticregression-credit.py
 Script que integra la particion del dataset (Entrenamiento y Pruebas)
-y la elaboracion del modelo de clasificacion de Bayes Ingenuo utilizando BernoulliNB.
+y la elaboracion de un modelo de regresion logistica para clasificacion de riesgo crediticio.
 
 Pasos realizados:
 1. Carga del conjunto de datos procesado (data/cleaned_credit_data.csv) o ejecutando el pipeline de limpieza.
 2. Particionamiento en conjuntos de Entrenamiento (80%) y Prueba (20%) estratificado.
-3. Entrenamiento del clasificador BernoulliNB.
+3. Entrenamiento del clasificador LogisticRegression.
 4. Evaluacion cuantitativa del modelo (Exactitud, Matriz de Confusion, Precision, Recall, F1-Score y ROC-AUC).
 5. Presentacion limpia de resultados en consola sin emojis.
 """
@@ -14,8 +14,8 @@ Pasos realizados:
 import os
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score, cross_validate
-from sklearn.naive_bayes import BernoulliNB
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
@@ -24,6 +24,7 @@ from sklearn.metrics import (
 )
 
 
+# Carga del dataset ya limpio. Si no existe, se ejecuta primero el pipeline de limpieza.
 def load_processed_data():
     """Carga los datos limpios de data/cleaned_credit_data.csv o ejecuta la limpieza si no existe."""
     filepath = os.path.join("data", "cleaned_credit_data.csv")
@@ -37,27 +38,8 @@ def load_processed_data():
     y = df['target_credit_risk']
     return X, y
 
-# Validacion cruzada estratificada: ayuda a depurar el modelo y a verificar si generaliza bien
-# Se usan pliegues (folds) con la misma proporción de clases en cada división para evitar sesgos.
-def cross_validate_model(X, y, n_splits=5, random_state=42):
-    """Evalúa el modelo con validación cruzada estratificada para medir estabilidad y robustez."""
-    print("Validacion Cruzada Estratificada (5 folds)\n")
 
-    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-    model = BernoulliNB(alpha=1.0)
-
-    scoring = ["accuracy", "precision", "recall", "f1", "roc_auc"]
-    cv_results = cross_validate(model, X, y, cv=cv, scoring=scoring)
-
-    for metric in scoring:
-        test_scores = cv_results[f"test_{metric}"]
-        print(f"{metric.capitalize()}: {test_scores.mean():.4f} +/- {test_scores.std():.4f}")
-
-    print("\nResumen de validacion cruzada completado.\n")
-    return cv_results
-
-# Particionamiento final: separa el conjunto de datos en entrenamiento y prueba para la evaluacion real
-# Esta division mantiene la proporción de la clase objetivo en ambos subconjuntos.
+# Particionamiento final del conjunto para evaluar el modelo sobre datos no vistos.
 def split_dataset(X, y, test_size=0.20, random_state=42):
     """
     Realiza el particionamiento entre conjuntos de entrenamiento y prueba.
@@ -75,18 +57,29 @@ def split_dataset(X, y, test_size=0.20, random_state=42):
 
     return X_train, X_test, y_train, y_test
 
-# Entrenamiento del modelo: ajusta el clasificador BernoulliNB sobre los datos binarios entrenados
-# El parametro alpha controla el suavizado de Laplace para evitar probabilidades nulas.
-def train_bernoulli_naive_bayes(X_train, y_train, alpha=1.0):
-    """
-    Entrena el modelo BernoulliNB especifico para caracteristicas de entrada binarias.
-    """
-    print("Entrenamiento del Clasificador BernoulliNB\n")
 
-    model = BernoulliNB(alpha=alpha)
+# Eleccion del modelo: Regresion Logistica.
+# Se selecciona porque el dataset ya fue binarizado y codificado, por lo que la regresion logistica
+# suele funcionar mejor que Naive Bayes cuando las variables tienen relacion lineal y no solo independencia.
+# Ademas, permite un mejor equilibrio entre sensibilidad y especificidad con class_weight='balanced'.
+def train_logistic_regression(X_train, y_train, max_iter=1000, random_state=42):
+    """
+    Entrena el modelo de Regresion Logistica especifico para datos binarios y variables transformadas.
+    """
+    print("Entrenamiento del Clasificador Logistic Regression\n")
+
+    model = LogisticRegression(
+        max_iter=max_iter,
+        random_state=random_state,
+        class_weight='balanced',
+        solver='liblinear'
+    )
     model.fit(X_train, y_train)
     return model
 
+
+# Evaluacion del modelo sobre el conjunto de prueba.
+# Se imprimen exactamente las mismas metricas que en el script BernoulliNB para comparar resultados.
 def evaluate_model(model, X_test, y_test):
     """
     Realiza las predicciones sobre el conjunto de prueba y genera
@@ -94,11 +87,9 @@ def evaluate_model(model, X_test, y_test):
     """
     print("Evaluacion del Modelo sobre el Conjunto de Prueba\n")
 
-    # Predicciones de clase y probabilidades
     y_pred = model.predict(X_test)
     y_prob = model.predict_proba(X_test)[:, 1]
 
-    # Metricas principales
     acc = accuracy_score(y_test, y_pred)
     roc_auc = roc_auc_score(y_test, y_prob)
     cm = confusion_matrix(y_test, y_pred)
@@ -123,17 +114,33 @@ def evaluate_model(model, X_test, y_test):
     target_names = ['Buen Credito (0)', 'Mal Credito (1)']
     print(classification_report(y_test, y_pred, target_names=target_names))
 
+
+# Validacion cruzada opcional para depurar el modelo y comprobar estabilidad del rendimiento.
+def cross_validate_model(X, y, n_splits=5, random_state=42):
+    """Evalua la regresion logistica con validacion cruzada estratificada."""
+    print("Validacion Cruzada Estratificada (5 folds)\n")
+
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    model = LogisticRegression(max_iter=1000, random_state=random_state, class_weight='balanced', solver='liblinear')
+
+    scores = cross_val_score(model, X, y, cv=cv, scoring='accuracy')
+    print("Accuracy por fold:", scores)
+    print(f"Accuracy media: {scores.mean():.4f}")
+    print(f"Accuracy std: {scores.std():4f}\n")
+
+
+# Funcion principal que ejecuta el flujo completo del modelo.
 def main():
-    print("MODELO DE CLASIFICACION CREDITICIA - BERNOULLI NAIVE BAYES\n")
+    print("MODELO DE CLASIFICACION CREDITICIA - REGRESION LOGISTICA\n")
     X, y = load_processed_data()
 
-    # Debug del modelo: validacion cruzada para comprobar la estabilidad del rendimiento
+    # Se ejecuta validacion cruzada para depurar la estabilidad del modelo antes del train/test final.
     cross_validate_model(X, y, n_splits=5, random_state=42)
 
-    # Evaluacion final con particion train/test para obtener metricas reales sobre datos no vistos
     X_train, X_test, y_train, y_test = split_dataset(X, y, test_size=0.20, random_state=42)
-    model = train_bernoulli_naive_bayes(X_train, y_train, alpha=1.0)
+    model = train_logistic_regression(X_train, y_train, max_iter=1000, random_state=42)
     evaluate_model(model, X_test, y_test)
+
 
 if __name__ == "__main__":
     main()
